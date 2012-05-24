@@ -186,6 +186,8 @@ EGLBoolean  eglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list,
                                        EGLConfig *configs, EGLint config_size,
                                        EGLint *num_config)
 {
+    CHECK_DISPLAY(dpy);
+
     // FIXME: not implemented
     return false;
 }
@@ -381,10 +383,12 @@ EGLBoolean  eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config,
     return EGL_TRUE;
 }
 
-EGLSurface  eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
+EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
                                               EGLNativeWindowType win,
                                               const EGLint *attrib_list)
 {
+    CHECK_DISPLAY(dpy);
+
     NSDictionary *drawableProperties =
       [NSDictionary dictionaryWithObjectsAndKeys:
        [NSNumber numberWithBool:NO], kEAGLDrawablePropertyRetainedBacking,
@@ -392,31 +396,144 @@ EGLSurface  eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
        nil];
     EAGLContext *context = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES1];
 
-    return false;
+    return EGL_FALSE;
 }
 
-EGLSurface  eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config,
+EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config,
                                                const EGLint *attrib_list)
 {
-    return false;
+    CHECK_DISPLAY(dpy);
+
+    return EGL_FALSE;
 }
 
-EGLSurface  eglCreatePixmapSurface(EGLDisplay dpy, EGLConfig config,
+EGLSurface eglCreatePixmapSurface(EGLDisplay dpy, EGLConfig config,
                                               EGLNativePixmapType pixmap,
                                               const EGLint *attrib_list)
 {
-    return false;
+    CHECK_DISPLAY(dpy);
+
+    return EGL_FALSE;
 }
 
-EGLBoolean  eglDestroySurface(EGLDisplay dpy, EGLSurface surface)
+EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface surface)
 {
-    return false;
+    CHECK_DISPLAY(dpy);
+
+    return EGL_FALSE;
 }
 
-EGLBoolean  eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
+EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
                                        EGLint attribute, EGLint *value)
 {
-    return false;
+    CHECK_DISPLAY(dpy);
+
+    if (!value) {
+        return EGL_FALSE;
+    }
+
+    switch (attribute) {
+    case EGL_CONFIG_ID:
+        // Returns the ID of the EGL frame buffer configuration with
+        // respect to which the surface was created.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_HEIGHT:
+        // Returns the height of the surface in pixels.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_HORIZONTAL_RESOLUTION:
+        // Returns the horizontal dot pitch of the display on which a
+        // window surface is visible. The value returned is equal to the
+        // actual dot pitch, in pixels/meter, multiplied by the constant
+        // value EGL_DISPLAY_SCALING.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_LARGEST_PBUFFER:
+        // Returns the same attribute value specified when the surface was
+        // created with eglCreatePbufferSurface. For a window or pixmap
+        // surface, value is not modified.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_MIPMAP_LEVEL:
+        // Returns which level of the mipmap to render to, if texture has
+        // mipmaps.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_MIPMAP_TEXTURE:
+        // Returns EGL_TRUE if texture has mipmaps, EGL_FALSE otherwise.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_MULTISAMPLE_RESOLVE:
+        // Returns the filter used when resolving the multisample buffer.
+        // The filter may be either EGL_MULTISAMPLE_RESOLVE_DEFAULT or
+        // EGL_MULTISAMPLE_RESOLVE_BOX, as described for eglSurfaceAttrib.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_PIXEL_ASPECT_RATIO:
+        // Returns the aspect ratio of an individual pixel (the ratio of a
+        // pixel's width to its height). The value returned is equal to the
+        // actual aspect ratio multiplied by the constant value
+        // EGL_DISPLAY_SCALING.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_RENDER_BUFFER:
+        // Returns the buffer which client API rendering is requested to
+        // use. For a window surface, this is the same attribute value
+        // specified when the surface was created. For a pbuffer surface,
+        // it is always EGL_BACK_BUFFER. For a pixmap surface, it is always
+        // EGL_SINGLE_BUFFER. To determine the actual buffer being rendered
+        // to by a context, call eglQueryContext.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_SWAP_BEHAVIOR:
+        // Returns the effect on the color buffer when posting a surface
+        // with eglSwapBuffers. Swap behavior may be either
+        // EGL_BUFFER_PRESERVED or EGL_BUFFER_DESTROYED, as described for
+        // eglSurfaceAttrib.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_TEXTURE_FORMAT:
+        // Returns format of texture. Possible values are EGL_NO_TEXTURE,
+        // EGL_TEXTURE_RGB, and EGL_TEXTURE_RGBA.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_TEXTURE_TARGET:
+        // Returns type of texture. Possible values are EGL_NO_TEXTURE, or
+        // EGL_TEXTURE_2D.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_VERTICAL_RESOLUTION:
+        // Returns the vertical dot pitch of the display on which a window
+        // surface is visible. The value returned is equal to the actual
+        // dot pitch, in pixels/meter, multiplied by the constant value
+        // EGL_DISPLAY_SCALING.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_WIDTH:
+        // Returns the width of the surface in pixels.
+        *value = 0;  // FIXME
+        break;
+
+    default:
+        s_internalAEGLError = EGL_BAD_ATTRIBUTE;
+        return EGL_FALSE;
+    }
+
+    return EGL_TRUE;
 }
 
 
@@ -425,9 +542,15 @@ EGLBoolean  eglBindAPI(EGLenum api)
     return false;
 }
 
-EGLenum  eglQueryAPI(void)
+EGLenum eglQueryAPI()
 {
-    return false;
+#if TARGET_IPHONE_OS || TARGET_IPHONE_SIMULATOR
+    return EGL_OPENGL_ES_API;
+#elif TARGET_MAC_OS_X
+    return EGL_NONE;
+#else
+    return EGL_NONE;
+#endif
 }
 
 EGLBoolean  eglWaitClient(void)
@@ -443,6 +566,8 @@ EGLBoolean  eglReleaseThread(void)
 EGLSurface  eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer,
                                              EGLConfig config, const EGLint *attrib_list)
 {
+    CHECK_DISPLAY(dpy);
+
     // FIXME: not implemented
     return false;
 }
@@ -450,18 +575,24 @@ EGLSurface  eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EG
 EGLBoolean  eglSurfaceAttrib(EGLDisplay dpy, EGLSurface surface,
                                         EGLint attribute, EGLint value)
 {
+    CHECK_DISPLAY(dpy);
+
     // FIXME: not implemented
     return false;
 }
 
 EGLBoolean  eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
 {
+    CHECK_DISPLAY(dpy);
+
     // FIXME: not implemented
     return false;
 }
 
 EGLBoolean  eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
 {
+    CHECK_DISPLAY(dpy);
+
     // FIXME: not implemented
     return false;
 }
@@ -469,6 +600,8 @@ EGLBoolean  eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer
 
 EGLBoolean  eglSwapInterval(EGLDisplay dpy, EGLint interval)
 {
+    CHECK_DISPLAY(dpy);
+
     // TODO: implementation
     return false;
 }
@@ -478,12 +611,16 @@ EGLContext  eglCreateContext(EGLDisplay dpy, EGLConfig config,
                                         EGLContext share_context,
                                         const EGLint *attrib_list)
 {
+    CHECK_DISPLAY(dpy);
+
     // TODO: implementation
     return false;
 }
 
 EGLBoolean  eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
 {
+    CHECK_DISPLAY(dpy);
+
     // TODO: implementation
     return false;
 }
@@ -491,6 +628,8 @@ EGLBoolean  eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
 EGLBoolean  eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
                                       EGLSurface read, EGLContext ctx)
 {
+    CHECK_DISPLAY(dpy);
+
     // TODO: implementation
     return false;
 }
@@ -511,31 +650,91 @@ EGLDisplay  eglGetCurrentDisplay(void)
     return false;
 }
 
-EGLBoolean  eglQueryContext(EGLDisplay dpy, EGLContext ctx,
+EGLBoolean eglQueryContext(EGLDisplay dpy, EGLContext ctx,
                                        EGLint attribute, EGLint *value)
 {
-    return false;
+    CHECK_DISPLAY(dpy);
+
+    if (!value) {
+        return EGL_FALSE;
+    }
+
+    switch (attribute) {
+    case EGL_CONFIG_ID:
+        // Returns the ID of the EGL frame buffer configuration with
+        // respect to which the context was created.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_CONTEXT_CLIENT_TYPE:
+        // Returns the type of client API which the context supports (one
+        // of EGL_OPENGL_API, EGL_OPENGL_ES_API, or EGL_OPENVG_API).
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_CONTEXT_CLIENT_VERSION:
+        // Returns the version of the client API which the context
+        // supports, as specified at context creation time. The resulting
+        // value is only meaningful for an OpenGL ES context.
+        *value = 0;  // FIXME
+        break;
+
+    case EGL_RENDER_BUFFER:
+        // Returns the buffer which client API rendering via the context
+        // will use. The value returned depends on properties of both the
+        // context, and the surface to which the context is bound:
+        //
+        //   * If the context is bound to a pixmap surface, then
+        //     EGL_SINGLE_BUFFER will be returned.
+        //
+        //   * If the context is bound to a pbuffer surface, then
+        //     EGL_BACK_BUFFER will be returned.
+        //
+        //   * If the context is bound to a window surface, then either
+        //     EGL_BACK_BUFFER or EGL_SINGLE_BUFFER may be returned. The
+        //     value returned depends on both the buffer requested by the
+        //     setting of the EGL_RENDER_BUFFER property of the surface
+        //     (which may be queried by calling eglQuerySurface), and on the
+        //     client API (not all client APIs support single-buffer
+        //     rendering to window surfaces).
+        //
+        //   * If the context is not bound to a surface, such as an OpenGL
+        //     ES context bound to a framebuffer object, then EGL_NONE will
+        //     be returned.
+        *value = 0;  // FIXME
+        break;
+
+    default:
+        s_internalAEGLError = EGL_BAD_ATTRIBUTE;
+        return EGL_FALSE;
+    }
+
+    return EGL_TRUE;
 }
 
 
-EGLBoolean  eglWaitGL(void)
+EGLBoolean eglWaitGL(void)
 {
     return false;
 }
 
-EGLBoolean  eglWaitNative(EGLint engine)
+EGLBoolean eglWaitNative(EGLint engine)
 {
     return false;
 }
 
 EGLBoolean  eglSwapBuffers(EGLDisplay dpy, EGLSurface surface)
 {
+    CHECK_DISPLAY(dpy);
+
     return false;
 }
 
 EGLBoolean  eglCopyBuffers(EGLDisplay dpy, EGLSurface surface,
                                       EGLNativePixmapType target)
 {
+    CHECK_DISPLAY(dpy);
+
     // FIXME: not implemented
     return false;
 }
