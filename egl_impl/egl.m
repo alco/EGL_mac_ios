@@ -25,6 +25,7 @@ static const int INTERNAL_AEGL_DISPLAY_SECRET = 0xf00d;
 // to check that the valid display object is passed to EGL functions.
 static struct internalAEGLDisplay_t {
     int secret_number;  // equal to INTERNAL_AEGL_DISPLAY for a valid display
+    EAGLContext *context;
 } s_internalAEGLDisplay = { INTERNAL_AEGL_DISPLAY_SECRET };
 
 struct internalAEGLConfig_t {
@@ -59,8 +60,10 @@ static struct internalAEGLConfig_t s_internalAEGL_OpenGLES_2_config = {
 
 struct internalAEGLSurface_t {
     UIView      *glView;
-    EAGLContext *context;
-    NSUInteger   renderBuffer;
+    NSUInteger   renderBufferTarget;
+    GLuint       framebuffer;
+    GLuint       colorRenderbuffer;
+    GLuint       depthRenderbuffer;
 };
 
 static EGLint s_internalAEGLError = EGL_SUCCESS;
@@ -82,6 +85,10 @@ static EGLint s_internalAEGLError = EGL_SUCCESS;
 
 
 #pragma mark -
+
+_Bool _createFrameBuffer(struct internalAEGLDisplay_t *display, struct internalAEGLSurface_t *surface);
+
+#pragma mark
 
 EGLint eglGetError(void)
 {
@@ -409,8 +416,9 @@ EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
 
     struct internalAEGLSurface_t *surface = malloc(sizeof(struct internalAEGLSurface_t));
     surface->glView = glView;
-    surface->context = nil;
-    surface->renderBuffer = GL_RENDERBUFFER_OES;
+    //surface->context = ((struct internalAEGLDisplay_t *)dpy)->context;
+    surface->renderBufferTarget = GL_RENDERBUFFER_OES;
+    _createFrameBuffer(dpy, surface);
 
     return surface;
 }
@@ -636,7 +644,7 @@ EGLContext  eglCreateContext(EGLDisplay dpy, EGLConfig config,
                 if (attrib_list[i+1] == 1) {
                     api_version = kEAGLRenderingAPIOpenGLES1;
                 } else if (attrib_list[i+1] == 2) {
-                    api_version = kEAGLRenderingAPIOpenGLES2;
+                    api_version = kEAGLRenderingAPIOpenGLES1;
                 }
             }
         }
@@ -653,6 +661,8 @@ EGLContext  eglCreateContext(EGLDisplay dpy, EGLConfig config,
     if (!context) {
         return EGL_NO_CONTEXT;
     }
+
+    ((struct internalAEGLDisplay_t *)dpy)->context = context;
 
     return context;
 }
@@ -671,8 +681,8 @@ EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
     CHECK_DISPLAY(dpy);
 
     EAGLContext *context = (EAGLContext *)ctx;
-    ((struct internalAEGLSurface_t *)draw)->context = context;
-    ((struct internalAEGLSurface_t *)read)->context = context;
+//    ((struct internalAEGLSurface_t *)draw)->context = context;
+//    ((struct internalAEGLSurface_t *)read)->context = context;
     if ([EAGLContext setCurrentContext:context]) {
         return EGL_TRUE;
     }
@@ -773,8 +783,9 @@ EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface sfc)
 {
     CHECK_DISPLAY(dpy);
 
-    struct internalAEGLSurface_t *surface = (struct internalAEGLSurface_t *)sfc;
-    if ([surface->context presentRenderbuffer:surface->renderBuffer]) {
+    EAGLContext *context = ((struct internalAEGLDisplay_t *)dpy)->context;
+    EAGLRenderingAPI renderBufferTarget = ((struct internalAEGLSurface_t *)sfc)->renderBufferTarget;
+    if ([context presentRenderbuffer:renderBufferTarget]) {
         return EGL_TRUE;
     }
 
@@ -790,32 +801,43 @@ EGLBoolean  eglCopyBuffers(EGLDisplay dpy, EGLSurface surface,
     return false;
 }
 
+#pragma mark -
 
-EGLBoolean _createFrameBuffer()
+_Bool _createFrameBuffer(struct internalAEGLDisplay_t *display, struct internalAEGLSurface_t *surface)
 {
-//    glGenFramebuffersOES(1, &viewFramebuffer);
-//    glGenRenderbuffersOES(1, &viewRenderbuffer);
-//
-//    glBindFramebufferOES(GL_FRAMEBUFFER_OES, viewFramebuffer);
-//    glBindRenderbufferOES(GL_RENDERBUFFER_OES, viewRenderbuffer);
-//    [context renderbufferStorage:GL_RENDERBUFFER_OES fromDrawable:(CAEAGLLayer*)self.layer];
-//    glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_COLOR_ATTACHMENT0_OES, GL_RENDERBUFFER_OES, viewRenderbuffer);
-//
-//    glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_WIDTH_OES, &backingWidth);
-//    glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_HEIGHT_OES, &backingHeight);
-//
-//    if (USE_DEPTH_BUFFER)
-//	{
-//        glGenRenderbuffersOES(1, &depthRenderbuffer);
-//        glBindRenderbufferOES(GL_RENDERBUFFER_OES, depthRenderbuffer);
-//        glRenderbufferStorageOES(GL_RENDERBUFFER_OES, GL_DEPTH_COMPONENT16_OES, backingWidth, backingHeight);
-//        glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_DEPTH_ATTACHMENT_OES, GL_RENDERBUFFER_OES, depthRenderbuffer);
-//    }
-//
-//    if(glCheckFramebufferStatusOES(GL_FRAMEBUFFER_OES) != GL_FRAMEBUFFER_COMPLETE_OES) {
-//        NSLog(@"failed to make complete framebuffer object %x", glCheckFramebufferStatusOES(GL_FRAMEBUFFER_OES));
-//        return false;
-//    }
+    GLuint framebuffer, color, depth = 0;
+
+    [EAGLContext setCurrentContext:display->context];
+
+    glGenFramebuffersOES(1, &framebuffer);
+    glGenRenderbuffersOES(1, &color);
+
+    glBindFramebufferOES(GL_FRAMEBUFFER_OES, framebuffer);
+    glBindRenderbufferOES(GL_RENDERBUFFER_OES, color);
+    [display->context renderbufferStorage:GL_RENDERBUFFER_OES fromDrawable:(CAEAGLLayer*)surface->glView.layer];
+    glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_COLOR_ATTACHMENT0_OES, GL_RENDERBUFFER_OES, color);
+
+    GLint backingWidth, backingHeight;
+    glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_WIDTH_OES, &backingWidth);
+    glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_HEIGHT_OES, &backingHeight);
+
+    if (1/*USE_DEPTH_BUFFER*/) {
+        glGenRenderbuffersOES(1, &depth);
+        glBindRenderbufferOES(GL_RENDERBUFFER_OES, depth);
+        glRenderbufferStorageOES(GL_RENDERBUFFER_OES, GL_DEPTH_COMPONENT16_OES, backingWidth, backingHeight);
+        glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_DEPTH_ATTACHMENT_OES, GL_RENDERBUFFER_OES, depth);
+    }
+
+    if (glCheckFramebufferStatusOES(GL_FRAMEBUFFER_OES) != GL_FRAMEBUFFER_COMPLETE_OES) {
+        return false;
+    }
+
+    surface->framebuffer = framebuffer;
+    surface->colorRenderbuffer = color;
+    surface->depthRenderbuffer = depth;
+
+    // Make color buffer the current bound renderbuffer
+    glBindRenderbufferOES(GL_RENDERBUFFER_OES, color);
 
     return true;
 }
