@@ -8,6 +8,8 @@
 
 #import <EGL/egl.h>
 #import <OpenGLES/EAGLDrawable.h>
+#import <OpenGLES/ES1/glext.h>
+#import <QuartzCore/QuartzCore.h>
 
 
 #define STRINGIFY(x) #x
@@ -53,6 +55,12 @@ static struct internalAEGLConfig_t s_internalAEGL_OpenGLES_2_config = {
     24,
     EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT,
     32
+};
+
+struct internalAEGLSurface_t {
+    UIView      *glView;
+    EAGLContext *context;
+    NSUInteger   renderBuffer;
 };
 
 static EGLint s_internalAEGLError = EGL_SUCCESS;
@@ -389,14 +397,22 @@ EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
 {
     CHECK_DISPLAY(dpy);
 
-    NSDictionary *drawableProperties =
+    // TODO: handle the attrib_list
+
+    UIView *glView = (UIView *)win;
+    CAEAGLLayer *layer = (CAEAGLLayer *)glView.layer;
+    layer.drawableProperties =
       [NSDictionary dictionaryWithObjectsAndKeys:
        [NSNumber numberWithBool:NO], kEAGLDrawablePropertyRetainedBacking,
        kEAGLColorFormatRGBA8,        kEAGLDrawablePropertyColorFormat,
        nil];
-    EAGLContext *context = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES1];
 
-    return EGL_FALSE;
+    struct internalAEGLSurface_t *surface = malloc(sizeof(struct internalAEGLSurface_t));
+    surface->glView = glView;
+    surface->context = nil;
+    surface->renderBuffer = GL_RENDERBUFFER_OES;
+
+    return surface;
 }
 
 EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config,
@@ -613,8 +629,32 @@ EGLContext  eglCreateContext(EGLDisplay dpy, EGLConfig config,
 {
     CHECK_DISPLAY(dpy);
 
-    // TODO: implementation
-    return false;
+    EAGLRenderingAPI api_version = kEAGLRenderingAPIOpenGLES1;
+    if (attrib_list) {
+        for (unsigned i = 0; attrib_list[i] != EGL_NONE; i += 2) {
+            if (attrib_list[i] == EGL_CONTEXT_CLIENT_VERSION) {
+                if (attrib_list[i+1] == 1) {
+                    api_version = kEAGLRenderingAPIOpenGLES1;
+                } else if (attrib_list[i+1] == 2) {
+                    api_version = kEAGLRenderingAPIOpenGLES2;
+                }
+            }
+        }
+    }
+
+    EAGLContext *context;
+    if (share_context == EGL_NO_CONTEXT) {
+        context = [[EAGLContext alloc] initWithAPI:api_version];
+    } else {
+        context = [[EAGLContext alloc] initWithAPI:api_version
+                                        sharegroup:[(EAGLContext *)share_context sharegroup]];
+    }
+
+    if (!context) {
+        return EGL_NO_CONTEXT;
+    }
+
+    return context;
 }
 
 EGLBoolean  eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
@@ -625,29 +665,35 @@ EGLBoolean  eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
     return false;
 }
 
-EGLBoolean  eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
+EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
                                       EGLSurface read, EGLContext ctx)
 {
     CHECK_DISPLAY(dpy);
 
-    // TODO: implementation
-    return false;
+    EAGLContext *context = (EAGLContext *)ctx;
+    ((struct internalAEGLSurface_t *)draw)->context = context;
+    ((struct internalAEGLSurface_t *)read)->context = context;
+    if ([EAGLContext setCurrentContext:context]) {
+        return EGL_TRUE;
+    }
+
+    return EGL_FALSE;
 }
 
 
-EGLContext  eglGetCurrentContext(void)
+EGLContext eglGetCurrentContext(void)
 {
-    return false;
+    return [EAGLContext currentContext];
 }
 
-EGLSurface  eglGetCurrentSurface(EGLint readdraw)
+EGLSurface eglGetCurrentSurface(EGLint readdraw)
 {
-    return false;
+    return NULL;
 }
 
-EGLDisplay  eglGetCurrentDisplay(void)
+EGLDisplay eglGetCurrentDisplay(void)
 {
-    return false;
+    return &s_internalAEGLDisplay;
 }
 
 EGLBoolean eglQueryContext(EGLDisplay dpy, EGLContext ctx,
@@ -723,11 +769,16 @@ EGLBoolean eglWaitNative(EGLint engine)
     return false;
 }
 
-EGLBoolean  eglSwapBuffers(EGLDisplay dpy, EGLSurface surface)
+EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface sfc)
 {
     CHECK_DISPLAY(dpy);
 
-    return false;
+    struct internalAEGLSurface_t *surface = (struct internalAEGLSurface_t *)sfc;
+    if ([surface->context presentRenderbuffer:surface->renderBuffer]) {
+        return EGL_TRUE;
+    }
+
+    return EGL_FALSE;
 }
 
 EGLBoolean  eglCopyBuffers(EGLDisplay dpy, EGLSurface surface,
