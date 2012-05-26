@@ -39,11 +39,11 @@ typedef struct internalAEGLConfig_t {
     EGLint green_size;
     EGLint blue_size;
     EGLint alpha_size;
+    EGLint buffer_size;
 
     EGLint depth_size;
 
     EGLint render_type_bitmask;
-    EGLint buffer_size;
 } AEGLConfig;
 
 typedef struct internalAEGLPlatformConfig_t {
@@ -53,21 +53,30 @@ typedef struct internalAEGLPlatformConfig_t {
     GLuint           depth_component;
 } AEGLPlatformConfig;
 
-static AEGLConfig s_OpenGLES_1_config = {
-    0,
-    5, 6, 5, 0,
-    0,
-    EGL_OPENGL_ES_BIT,
-    16
+// Enumerate all possible configs. The following table shows the
+// available settings and their variations:
+//
+// +------+--------------+-------------------+-----------------+
+// | API  | Color format | Depth-buffer bits | Retains backing |
+// +======+==============+===================+=================+
+// | ES 1 |    RGB565    |         0         |       no        |
+// | ES 2 |    RGBA8     |         16        |       yes       |
+// |      |              |         24        |                 |
+// +------+--------------+-------------------+-----------------+
+//
+// This gives us a total of 24 possible configs.
+static AEGLConfig s_configs[] = {
+    {  0,   5, 6, 5, 0,  16,   0,   EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT },
+    {  1,   5, 6, 5, 0,  16,   16,  EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT },
+    {  2,   5, 6, 5, 0,  16,   24,  EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT },
+    {  3,   8, 8, 8, 8,  32,   0,   EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT },
+    {  4,   8, 8, 8, 8,  32,   16,  EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT },
+    {  5,   8, 8, 8, 8,  32,   24,  EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT },
 };
 
-static AEGLConfig s_OpenGLES_2_config = {
-    1,
-    8, 8, 8, 8,
-    24,
-    EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT,
-    32
-};
+static AEGLConfig *s_defaultES1_config = &s_configs[1];
+static AEGLConfig *s_defaultES2_config = &s_configs[4];
+static const int INTERNAL_AEGL_NUM_CONFIGS = sizeof(s_configs) / sizeof(AEGLConfig);
 
 typedef struct internalAEGLSurface_t {
     UIView      *glView;
@@ -79,8 +88,9 @@ typedef struct internalAEGLSurface_t {
 } AEGLSurface;
 
 struct internalAEGLContext_t {
-    EAGLContext *context;
-    AEGLConfig  *config;
+    EAGLContext     *context;
+    AEGLConfig      *config;
+    EAGLRenderingAPI api_version;
 };
 
 static EGLint s_error = EGL_SUCCESS;
@@ -196,21 +206,25 @@ EGLBoolean eglGetConfigs(EGLDisplay dpy, EGLConfig *configs,
         return EGL_FALSE;
     }
 
-    if (configs) {
-        if (config_size < 1) {
-            *num_config = 0;
-        } else if (config_size == 1) {
-            // Return only OpenGL ES 1 for compatibility with old devices
-            configs[0] = (EGLConfig)&s_OpenGLES_1_config;
-            *num_config = 1;
-        } else if (config_size > 1) {
-            // Return both OpenGL ES 1 and OpenGL ES 2
-            configs[0] = (EGLConfig)&s_OpenGLES_1_config;
-            configs[1] = (EGLConfig)&s_OpenGLES_2_config;
-            *num_config = 2;
-        }
-    } else {
+    if (!configs || config_size < 1) {
+        return EGL_FALSE;
+    }
+
+    if (config_size == 1) {
+        // Return only OpenGL ES 1 for compatibility with old devices
+        configs[0] = s_defaultES1_config;
+        *num_config = 1;
+    } else if (config_size == 2) {
+        // Return both OpenGL ES 1 and OpenGL ES 2
+        configs[0] = &s_defaultES1_config;
+        configs[1] = &s_defaultES2_config;
         *num_config = 2;
+    } else {
+        int size = MIN(config_size, INTERNAL_AEGL_NUM_CONFIGS);
+        for (int i = 0; i < size; ++i) {
+            configs[i] = &s_configs[i];
+        }
+        *num_config = size;
     }
 
     return EGL_TRUE;
@@ -443,7 +457,6 @@ EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
     surface->framebuffer = 0;
     surface->colorRenderbuffer = 0;
     surface->depthRenderbuffer = 0;
-    surface->renderBufferTarget = GL_RENDERBUFFER_OES;
 
     return surface;
 }
@@ -693,6 +706,7 @@ EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config,
     AEGLContext *context = malloc(sizeof(AEGLContext));
     context->context = ctx;
     context->config = config;
+    context->api_version = api_version;
 
     return context;
 }
@@ -720,6 +734,9 @@ EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
 
     AEGLSurface *surface = (AEGLSurface *)draw;
     surface->context = context;
+    surface->renderBufferTarget = (context->api_version == kEAGLRenderingAPIOpenGLES1
+                                   ? GL_RENDERBUFFER_OES
+                                   : GL_RENDERBUFFER);
 
     if (_setupFrameBuffer(surface, surface->context)) {
         return EGL_TRUE;
@@ -883,7 +900,10 @@ _Bool _setupFrameBuffer(AEGLSurface *surface, AEGLContext *context)
     // Create the color buffer
     glGenRenderbuffersOES(1, &color);
     glBindRenderbufferOES(GL_RENDERBUFFER_OES, color);
-    [context->context renderbufferStorage:GL_RENDERBUFFER_OES fromDrawable:(CAEAGLLayer*)surface->glView.layer];
+    [context->context renderbufferStorage:(context->api_version == kEAGLRenderingAPIOpenGLES1
+                                           ? GL_RENDERBUFFER_OES
+                                           : GL_RENDERBUFFER)
+                             fromDrawable:(CAEAGLLayer*)surface->glView.layer];
     glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_COLOR_ATTACHMENT0_OES, GL_RENDERBUFFER_OES, color);
 
     if (context->config->depth_size) {
