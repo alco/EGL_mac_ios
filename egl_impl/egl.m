@@ -88,9 +88,9 @@ typedef struct internalAEGLSurface_t {
 } AEGLSurface;
 
 struct internalAEGLContext_t {
-    EAGLContext     *context;
-    AEGLConfig      *config;
-    EAGLRenderingAPI api_version;
+    EAGLContext *context;
+    AEGLConfig  *config;
+    EGLint       api_version;
 };
 
 static EGLint s_error = EGL_SUCCESS;
@@ -767,7 +767,9 @@ EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config,
     AEGLContext *context = malloc(sizeof(AEGLContext));
     context->context = ctx;
     context->config = config;
-    context->api_version = api_version;
+    context->api_version = (api_version == kEAGLRenderingAPIOpenGLES1
+                            ? 1
+                            : 2);
 
     return context;
 }
@@ -809,7 +811,7 @@ EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLC
 
     AEGLSurface *surface = (AEGLSurface *)draw;
     surface->context = context;
-    surface->renderBufferTarget = (context->api_version == kEAGLRenderingAPIOpenGLES1
+    surface->renderBufferTarget = (context->api_version == 1
                                    ? GL_RENDERBUFFER_OES
                                    : GL_RENDERBUFFER);
 
@@ -838,13 +840,20 @@ EGLDisplay eglGetCurrentDisplay(void)
 }
 
 EGLBoolean eglQueryContext(EGLDisplay dpy, EGLContext ctx,
-                                       EGLint attribute, EGLint *value)
+                           EGLint attribute, EGLint *value)
 {
     CHECK_DISPLAY(dpy);
 
     if (!value) {
         return EGL_FALSE;
     }
+
+    if (!ctx) {
+        s_error = EGL_BAD_CONTEXT;
+        return EGL_FALSE;
+    }
+
+    AEGLContext *context = (AEGLContext *)ctx;
 
     switch (attribute) {
     case EGL_CONFIG_ID:
@@ -856,14 +865,14 @@ EGLBoolean eglQueryContext(EGLDisplay dpy, EGLContext ctx,
     case EGL_CONTEXT_CLIENT_TYPE:
         // Returns the type of client API which the context supports (one
         // of EGL_OPENGL_API, EGL_OPENGL_ES_API, or EGL_OPENVG_API).
-        *value = 0;  // FIXME
+        *value = EGL_OPENGL_ES_API;
         break;
 
     case EGL_CONTEXT_CLIENT_VERSION:
         // Returns the version of the client API which the context
         // supports, as specified at context creation time. The resulting
         // value is only meaningful for an OpenGL ES context.
-        *value = 0;  // FIXME
+        *value = context->api_version;
         break;
 
     case EGL_RENDER_BUFFER:
@@ -922,8 +931,8 @@ EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface sfc)
     return EGL_FALSE;
 }
 
-EGLBoolean  eglCopyBuffers(EGLDisplay dpy, EGLSurface surface,
-                                      EGLNativePixmapType target)
+EGLBoolean eglCopyBuffers(EGLDisplay dpy, EGLSurface surface,
+                          EGLNativePixmapType target)
 {
     CHECK_DISPLAY(dpy);
 
@@ -975,7 +984,7 @@ _Bool _setupFrameBuffer(AEGLSurface *surface, AEGLContext *context)
     // Create the color buffer
     glGenRenderbuffersOES(1, &color);
     glBindRenderbufferOES(GL_RENDERBUFFER_OES, color);
-    [context->context renderbufferStorage:(context->api_version == kEAGLRenderingAPIOpenGLES1
+    [context->context renderbufferStorage:(context->api_version == 1
                                            ? GL_RENDERBUFFER_OES
                                            : GL_RENDERBUFFER)
                              fromDrawable:(CAEAGLLayer*)surface->glView.layer];
