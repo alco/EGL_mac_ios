@@ -158,7 +158,7 @@ EGLBoolean eglTerminate(EGLDisplay dpy)
     return EGL_TRUE;
 }
 
-const char * eglQueryString(EGLDisplay dpy, EGLint name)
+const char *eglQueryString(EGLDisplay dpy, EGLint name)
 {
     CHECK_DISPLAY_2(dpy, NULL);
 
@@ -206,8 +206,10 @@ EGLBoolean eglGetConfigs(EGLDisplay dpy, EGLConfig *configs,
         return EGL_FALSE;
     }
 
-    if (!configs || config_size < 1) {
-        return EGL_FALSE;
+    if (!configs) {
+        // Return the total number of supported configs.
+        *num_config = INTERNAL_AEGL_NUM_CONFIGS;
+        return EGL_TRUE;
     }
 
     if (config_size == 1) {
@@ -231,14 +233,31 @@ EGLBoolean eglGetConfigs(EGLDisplay dpy, EGLConfig *configs,
 }
 
 
-EGLBoolean  eglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list,
-                                       EGLConfig *configs, EGLint config_size,
-                                       EGLint *num_config)
+EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list,
+                           EGLConfig *configs, EGLint config_size,
+                           EGLint *num_config)
 {
     CHECK_DISPLAY(dpy);
 
-    // FIXME: not implemented
-    return false;
+    if (!configs) {
+        // Return the total number of configs matching the attributes.
+        // TODO: ...
+        return EGL_TRUE;
+    }
+
+    if (attrib_list) {
+//        for (unsigned i = 0; attrib_list[i] != EGL_NONE; i += 2) {
+//            if (attrib_list[i] == EGL_CONTEXT_CLIENT_VERSION) {
+//                if (attrib_list[i+1] == 1) {
+//                    api_version = kEAGLRenderingAPIOpenGLES1;
+//                } else if (attrib_list[i+1] == 2) {
+//                    api_version = kEAGLRenderingAPIOpenGLES2;
+//                }
+//            }
+//        }
+    }
+
+    return EGL_TRUE;
 }
 
 EGLBoolean  eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config,
@@ -433,8 +452,8 @@ EGLBoolean  eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config,
 }
 
 EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
-                                              EGLNativeWindowType win,
-                                              const EGLint *attrib_list)
+                                  EGLNativeWindowType win,
+                                  const EGLint *attrib_list)
 {
     CHECK_DISPLAY(dpy);
 
@@ -462,37 +481,79 @@ EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
 }
 
 EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config,
-                                               const EGLint *attrib_list)
+                                   const EGLint *attrib_list)
 {
     CHECK_DISPLAY(dpy);
 
-    return EGL_FALSE;
+    // FIXME: Not implemented
+
+    return NULL;
 }
 
 EGLSurface eglCreatePixmapSurface(EGLDisplay dpy, EGLConfig config,
-                                              EGLNativePixmapType pixmap,
-                                              const EGLint *attrib_list)
+                                  EGLNativePixmapType pixmap,
+                                  const EGLint *attrib_list)
 {
     CHECK_DISPLAY(dpy);
 
-    return EGL_FALSE;
+    // FIXME: Not implemented
+
+    return NULL;
 }
 
-EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface surface)
+EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface sfc)
 {
     CHECK_DISPLAY(dpy);
 
-    return EGL_FALSE;
+    // TODO:
+    // If the EGL surface surface is not current to any thread,
+    // eglDestroySurface destroys it immediately. Otherwise, surface is
+    // destroyed when it becomes not current to any thread.
+
+    if (!sfc) {
+        s_error = EGL_BAD_SURFACE;
+        return EGL_FALSE;
+    }
+
+    EAGLContext *prevContext = nil;
+    AEGLSurface *surface = (AEGLSurface *)sfc;
+    if (surface->context) {
+        prevContext = [EAGLContext currentContext];
+        [EAGLContext setCurrentContext:surface->context->context];
+    }
+    if (surface->depthRenderbuffer) {
+        glDeleteRenderbuffersOES(1, &surface->depthRenderbuffer);
+    }
+    if (surface->colorRenderbuffer) {
+        glDeleteRenderbuffersOES(1, &surface->colorRenderbuffer);
+    }
+    if (surface->framebuffer) {
+        glDeleteFramebuffersOES(1, &surface->framebuffer);
+    }
+    free(surface);
+
+    if (prevContext) {
+        [EAGLContext setCurrentContext:prevContext];
+    }
+
+    return EGL_TRUE;
 }
 
-EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
-                                       EGLint attribute, EGLint *value)
+EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface sfc,
+                           EGLint attribute, EGLint *value)
 {
     CHECK_DISPLAY(dpy);
 
     if (!value) {
         return EGL_FALSE;
     }
+
+    if (!sfc) {
+        s_error = EGL_BAD_SURFACE;
+        return EGL_FALSE;
+    }
+
+    AEGLSurface *surface = (AEGLSurface *)sfc;
 
     switch (attribute) {
     case EGL_CONFIG_ID:
@@ -503,7 +564,7 @@ EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
 
     case EGL_HEIGHT:
         // Returns the height of the surface in pixels.
-        *value = 0;  // FIXME
+        *value = (GLint)surface->glView.layer.bounds.size.height;
         break;
 
     case EGL_HORIZONTAL_RESOLUTION:
@@ -518,25 +579,25 @@ EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
         // Returns the same attribute value specified when the surface was
         // created with eglCreatePbufferSurface. For a window or pixmap
         // surface, value is not modified.
-        *value = 0;  // FIXME
+        ;  // FIXME
         break;
 
     case EGL_MIPMAP_LEVEL:
         // Returns which level of the mipmap to render to, if texture has
         // mipmaps.
-        *value = 0;  // FIXME
+        ;  // FIXME
         break;
 
     case EGL_MIPMAP_TEXTURE:
         // Returns EGL_TRUE if texture has mipmaps, EGL_FALSE otherwise.
-        *value = 0;  // FIXME
+        *value = EGL_FALSE;
         break;
 
     case EGL_MULTISAMPLE_RESOLVE:
         // Returns the filter used when resolving the multisample buffer.
         // The filter may be either EGL_MULTISAMPLE_RESOLVE_DEFAULT or
         // EGL_MULTISAMPLE_RESOLVE_BOX, as described for eglSurfaceAttrib.
-        *value = 0;  // FIXME
+        ;  // FIXME
         break;
 
     case EGL_PIXEL_ASPECT_RATIO:
@@ -544,7 +605,7 @@ EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
         // pixel's width to its height). The value returned is equal to the
         // actual aspect ratio multiplied by the constant value
         // EGL_DISPLAY_SCALING.
-        *value = 0;  // FIXME
+        ;  // FIXME
         break;
 
     case EGL_RENDER_BUFFER:
@@ -587,7 +648,7 @@ EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
 
     case EGL_WIDTH:
         // Returns the width of the surface in pixels.
-        *value = 0;  // FIXME
+        *value = (GLint)surface->glView.layer.bounds.size.width;
         break;
 
     default:
@@ -599,7 +660,7 @@ EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
 }
 
 
-EGLBoolean  eglBindAPI(EGLenum api)
+EGLBoolean eglBindAPI(EGLenum api)
 {
     return false;
 }
@@ -715,12 +776,26 @@ EGLBoolean eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
 {
     CHECK_DISPLAY(dpy);
 
-    // TODO: implementation
-    return false;
+    // TODO:
+    // If the EGL rendering context context is not current to any thread,
+    // eglDestroyContext destroys it immediately. Otherwise, context is
+    // destroyed when it becomes not current to any thread.
+
+    if (!ctx) {
+        s_error = EGL_BAD_CONTEXT;
+        return EGL_FALSE;
+    }
+
+    AEGLContext *context = (AEGLContext *)ctx;
+    [EAGLContext setCurrentContext:nil];
+    [context->context release];
+
+    free(context);
+
+    return EGL_TRUE;
 }
 
-EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
-                                      EGLSurface read, EGLContext ctx)
+EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
 {
     CHECK_DISPLAY(dpy);
 
