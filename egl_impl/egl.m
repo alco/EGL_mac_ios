@@ -21,14 +21,18 @@ static const EGLint INTERNAL_AEGL_VERSION_MINOR = 4;
 static const int INTERNAL_AEGL_DISPLAY_SECRET = 0xf00d;
 
 
+typedef struct internalAEGLContext_t AEGLContext;
+
 // This is a dummy object with a single field that is used
 // to check that the valid display object is passed to EGL functions.
-static struct internalAEGLDisplay_t {
+typedef struct internalAEGLDisplay_t {
     int secret_number;  // equal to INTERNAL_AEGL_DISPLAY for a valid display
-    EAGLContext *context;
-} s_internalAEGLDisplay = { INTERNAL_AEGL_DISPLAY_SECRET };
+    AEGLContext *context;
+} AEGLDisplay;
 
-struct internalAEGLConfig_t {
+static AEGLDisplay s_defaultDisplay = { INTERNAL_AEGL_DISPLAY_SECRET, NULL };
+
+typedef struct internalAEGLConfig_t {
     EGLint config_id;
 
     EGLint red_size;
@@ -40,9 +44,9 @@ struct internalAEGLConfig_t {
 
     EGLint render_type_bitmask;
     EGLint buffer_size;
-};
+} AEGLConfig;
 
-static struct internalAEGLConfig_t s_internalAEGL_OpenGLES_1_config = {
+static AEGLConfig s_OpenGLES_1_config = {
     0,
     5, 6, 5, 0,
     0,
@@ -50,7 +54,7 @@ static struct internalAEGLConfig_t s_internalAEGL_OpenGLES_1_config = {
     16
 };
 
-static struct internalAEGLConfig_t s_internalAEGL_OpenGLES_2_config = {
+static AEGLConfig s_OpenGLES_2_config = {
     1,
     8, 8, 8, 8,
     24,
@@ -58,41 +62,49 @@ static struct internalAEGLConfig_t s_internalAEGL_OpenGLES_2_config = {
     32
 };
 
-struct internalAEGLSurface_t {
+typedef struct internalAEGLSurface_t {
     UIView      *glView;
+    AEGLContext *context;
     NSUInteger   renderBufferTarget;
     GLuint       framebuffer;
     GLuint       colorRenderbuffer;
     GLuint       depthRenderbuffer;
+} AEGLSurface;
+
+struct internalAEGLContext_t {
+    EAGLContext *context;
+    AEGLConfig  *config;
 };
 
-static EGLint s_internalAEGLError = EGL_SUCCESS;
+static EGLint s_error = EGL_SUCCESS;
 
 
-#define CHECK_DISPLAY(display)                                                                      \
-    if (((struct internalAEGLDisplay_t *)display)->secret_number != INTERNAL_AEGL_DISPLAY_SECRET) { \
-        s_internalAEGLError = EGL_BAD_DISPLAY;                                                      \
-        return EGL_FALSE;                                                                           \
+#define CHECK_DISPLAY(display)                                                     \
+    if (((AEGLDisplay *)display)->secret_number != INTERNAL_AEGL_DISPLAY_SECRET) { \
+        s_error = EGL_BAD_DISPLAY;                                                 \
+        return EGL_FALSE;                                                          \
     }
 
-#define CHECK_DISPLAY_2(display, retval)                                                            \
-    if (((struct internalAEGLDisplay_t *)display)->secret_number != INTERNAL_AEGL_DISPLAY_SECRET) { \
-        s_internalAEGLError = EGL_BAD_DISPLAY;                                                      \
-        return retval;                                                                              \
+#define CHECK_DISPLAY_2(display, retval)                                           \
+    if (((AEGLDisplay *)display)->secret_number != INTERNAL_AEGL_DISPLAY_SECRET) { \
+        s_error = EGL_BAD_DISPLAY;                                                 \
+        return retval;                                                             \
     }
 
-#define GET_CONFIG(config, field) ((struct internalAEGLConfig_t *)config)->field
+#define GET_CONFIG(config, field) ((AEGLConfig *)config)->field
 
 
 #pragma mark -
 
-_Bool _createFrameBuffer(struct internalAEGLDisplay_t *display, struct internalAEGLSurface_t *surface);
+_Bool _createFrameBuffer(AEGLSurface *surface, AEGLContext *context);
 
 #pragma mark
 
 EGLint eglGetError(void)
 {
-    return s_internalAEGLError;
+    EGLint retval = s_error;
+    s_error = EGL_SUCCESS;
+    return retval;
 }
 
 EGLDisplay eglGetDisplay(EGLNativeDisplayType display_id)
@@ -100,7 +112,7 @@ EGLDisplay eglGetDisplay(EGLNativeDisplayType display_id)
     if (display_id != EGL_DEFAULT_DISPLAY) {
         return EGL_NO_DISPLAY;
     }
-    return &s_internalAEGLDisplay;
+    return &s_defaultDisplay;
 }
 
 EGLBoolean eglInitialize(EGLDisplay dpy, EGLint *major, EGLint *minor)
@@ -159,7 +171,7 @@ const char * eglQueryString(EGLDisplay dpy, EGLint name)
         return "";
 
     default:
-        s_internalAEGLError = EGL_BAD_PARAMETER;
+        s_error = EGL_BAD_PARAMETER;
         return NULL;
     }
 
@@ -172,7 +184,7 @@ EGLBoolean eglGetConfigs(EGLDisplay dpy, EGLConfig *configs,
     CHECK_DISPLAY(dpy);
 
     if (!num_config) {
-        s_internalAEGLError = EGL_BAD_PARAMETER;
+        s_error = EGL_BAD_PARAMETER;
         return EGL_FALSE;
     }
 
@@ -181,12 +193,12 @@ EGLBoolean eglGetConfigs(EGLDisplay dpy, EGLConfig *configs,
             *num_config = 0;
         } else if (config_size == 1) {
             // Return only OpenGL ES 1 for compatibility with old devices
-            configs[0] = (EGLConfig)&s_internalAEGL_OpenGLES_1_config;
+            configs[0] = (EGLConfig)&s_OpenGLES_1_config;
             *num_config = 1;
         } else if (config_size > 1) {
             // Return both OpenGL ES 1 and OpenGL ES 2
-            configs[0] = (EGLConfig)&s_internalAEGL_OpenGLES_1_config;
-            configs[1] = (EGLConfig)&s_internalAEGL_OpenGLES_2_config;
+            configs[0] = (EGLConfig)&s_OpenGLES_1_config;
+            configs[1] = (EGLConfig)&s_OpenGLES_2_config;
             *num_config = 2;
         }
     } else {
@@ -391,7 +403,7 @@ EGLBoolean  eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config,
         break;
 
     default:
-        s_internalAEGLError = EGL_BAD_ATTRIBUTE;
+        s_error = EGL_BAD_ATTRIBUTE;
         return EGL_FALSE;
     }
 
@@ -414,11 +426,13 @@ EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
        kEAGLColorFormatRGBA8,        kEAGLDrawablePropertyColorFormat,
        nil];
 
-    struct internalAEGLSurface_t *surface = malloc(sizeof(struct internalAEGLSurface_t));
+    AEGLSurface *surface = malloc(sizeof(AEGLSurface));
     surface->glView = glView;
-    //surface->context = ((struct internalAEGLDisplay_t *)dpy)->context;
+    surface->context = NULL;
+    surface->framebuffer = 0;
+    surface->colorRenderbuffer = 0;
+    surface->depthRenderbuffer = 0;
     surface->renderBufferTarget = GL_RENDERBUFFER_OES;
-    _createFrameBuffer(dpy, surface);
 
     return surface;
 }
@@ -553,7 +567,7 @@ EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface,
         break;
 
     default:
-        s_internalAEGLError = EGL_BAD_ATTRIBUTE;
+        s_error = EGL_BAD_ATTRIBUTE;
         return EGL_FALSE;
     }
 
@@ -577,17 +591,17 @@ EGLenum eglQueryAPI()
 #endif
 }
 
-EGLBoolean  eglWaitClient(void)
+EGLBoolean eglWaitClient(void)
 {
     return false;
 }
 
-EGLBoolean  eglReleaseThread(void)
+EGLBoolean eglReleaseThread(void)
 {
     return false;
 }
 
-EGLSurface  eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer,
+EGLSurface eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer,
                                              EGLConfig config, const EGLint *attrib_list)
 {
     CHECK_DISPLAY(dpy);
@@ -596,7 +610,7 @@ EGLSurface  eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EG
     return false;
 }
 
-EGLBoolean  eglSurfaceAttrib(EGLDisplay dpy, EGLSurface surface,
+EGLBoolean eglSurfaceAttrib(EGLDisplay dpy, EGLSurface surface,
                                         EGLint attribute, EGLint value)
 {
     CHECK_DISPLAY(dpy);
@@ -605,7 +619,7 @@ EGLBoolean  eglSurfaceAttrib(EGLDisplay dpy, EGLSurface surface,
     return false;
 }
 
-EGLBoolean  eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
+EGLBoolean eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
 {
     CHECK_DISPLAY(dpy);
 
@@ -613,7 +627,7 @@ EGLBoolean  eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
     return false;
 }
 
-EGLBoolean  eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
+EGLBoolean eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
 {
     CHECK_DISPLAY(dpy);
 
@@ -622,7 +636,7 @@ EGLBoolean  eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer
 }
 
 
-EGLBoolean  eglSwapInterval(EGLDisplay dpy, EGLint interval)
+EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval)
 {
     CHECK_DISPLAY(dpy);
 
@@ -631,7 +645,7 @@ EGLBoolean  eglSwapInterval(EGLDisplay dpy, EGLint interval)
 }
 
 
-EGLContext  eglCreateContext(EGLDisplay dpy, EGLConfig config,
+EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config,
                                         EGLContext share_context,
                                         const EGLint *attrib_list)
 {
@@ -650,24 +664,26 @@ EGLContext  eglCreateContext(EGLDisplay dpy, EGLConfig config,
         }
     }
 
-    EAGLContext *context;
+    EAGLContext *ctx;
     if (share_context == EGL_NO_CONTEXT) {
-        context = [[EAGLContext alloc] initWithAPI:api_version];
+        ctx = [[EAGLContext alloc] initWithAPI:api_version];
     } else {
-        context = [[EAGLContext alloc] initWithAPI:api_version
-                                        sharegroup:[(EAGLContext *)share_context sharegroup]];
+        ctx = [[EAGLContext alloc] initWithAPI:api_version
+                                    sharegroup:[((AEGLContext *)share_context)->context sharegroup]];
     }
 
-    if (!context) {
+    if (!ctx) {
         return EGL_NO_CONTEXT;
     }
 
-    ((struct internalAEGLDisplay_t *)dpy)->context = context;
+    AEGLContext *context = malloc(sizeof(AEGLContext));
+    context->context = ctx;
+    context->config = config;
 
     return context;
 }
 
-EGLBoolean  eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
+EGLBoolean eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
 {
     CHECK_DISPLAY(dpy);
 
@@ -680,10 +696,18 @@ EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
 {
     CHECK_DISPLAY(dpy);
 
-    EAGLContext *context = (EAGLContext *)ctx;
-//    ((struct internalAEGLSurface_t *)draw)->context = context;
-//    ((struct internalAEGLSurface_t *)read)->context = context;
-    if ([EAGLContext setCurrentContext:context]) {
+    if (draw != read)
+        return EGL_FALSE;
+
+    AEGLContext *context = (AEGLContext *)ctx;
+
+    AEGLDisplay *display = (AEGLDisplay *)dpy;
+    display->context = context;
+
+    AEGLSurface *surface = (AEGLSurface *)draw;
+    surface->context = context;
+
+    if (_createFrameBuffer(surface, surface->context)) {
         return EGL_TRUE;
     }
 
@@ -693,6 +717,7 @@ EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
 
 EGLContext eglGetCurrentContext(void)
 {
+    // FIXME
     return [EAGLContext currentContext];
 }
 
@@ -703,7 +728,7 @@ EGLSurface eglGetCurrentSurface(EGLint readdraw)
 
 EGLDisplay eglGetCurrentDisplay(void)
 {
-    return &s_internalAEGLDisplay;
+    return &s_defaultDisplay;
 }
 
 EGLBoolean eglQueryContext(EGLDisplay dpy, EGLContext ctx,
@@ -761,7 +786,7 @@ EGLBoolean eglQueryContext(EGLDisplay dpy, EGLContext ctx,
         break;
 
     default:
-        s_internalAEGLError = EGL_BAD_ATTRIBUTE;
+        s_error = EGL_BAD_ATTRIBUTE;
         return EGL_FALSE;
     }
 
@@ -783,9 +808,8 @@ EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface sfc)
 {
     CHECK_DISPLAY(dpy);
 
-    EAGLContext *context = ((struct internalAEGLDisplay_t *)dpy)->context;
-    EAGLRenderingAPI renderBufferTarget = ((struct internalAEGLSurface_t *)sfc)->renderBufferTarget;
-    if ([context presentRenderbuffer:renderBufferTarget]) {
+    AEGLSurface *surface = (AEGLSurface *)sfc;
+    if ([surface->context->context presentRenderbuffer:surface->renderBufferTarget]) {
         return EGL_TRUE;
     }
 
@@ -803,29 +827,54 @@ EGLBoolean  eglCopyBuffers(EGLDisplay dpy, EGLSurface surface,
 
 #pragma mark -
 
-_Bool _createFrameBuffer(struct internalAEGLDisplay_t *display, struct internalAEGLSurface_t *surface)
+GLuint _createDepthBuffer(GLint width, GLint height, GLuint bits)
+{
+    // It assumes that a render buffer is bound to the current context
+
+    if (bits == 0) {
+        return 0;
+    }
+
+    GLuint depth = 0;
+    glGenRenderbuffersOES(1, &depth);
+    if (!depth)
+        return 0;
+
+    GLuint depth_component = 0;
+    if (bits == 16) {
+        depth_component = GL_DEPTH_COMPONENT16_OES;
+    } else if (bits == 24) {
+        depth_component = GL_DEPTH_COMPONENT24_OES;
+    } else {
+        /* ignore the bits value and use the default 16 bits */
+        depth_component = GL_DEPTH_COMPONENT16_OES;
+    }
+
+    glBindRenderbufferOES(GL_RENDERBUFFER_OES, depth);
+    glRenderbufferStorageOES(GL_RENDERBUFFER_OES, depth_component, width, height);
+    glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_DEPTH_ATTACHMENT_OES, GL_RENDERBUFFER_OES, depth);
+    return depth;
+}
+
+_Bool _createFrameBuffer(AEGLSurface *surface, AEGLContext *context)
 {
     GLuint framebuffer, color, depth = 0;
 
-    [EAGLContext setCurrentContext:display->context];
+    [EAGLContext setCurrentContext:context->context];
 
     glGenFramebuffersOES(1, &framebuffer);
     glGenRenderbuffersOES(1, &color);
 
     glBindFramebufferOES(GL_FRAMEBUFFER_OES, framebuffer);
     glBindRenderbufferOES(GL_RENDERBUFFER_OES, color);
-    [display->context renderbufferStorage:GL_RENDERBUFFER_OES fromDrawable:(CAEAGLLayer*)surface->glView.layer];
+    [context->context renderbufferStorage:GL_RENDERBUFFER_OES fromDrawable:(CAEAGLLayer*)surface->glView.layer];
     glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_COLOR_ATTACHMENT0_OES, GL_RENDERBUFFER_OES, color);
 
-    GLint backingWidth, backingHeight;
-    glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_WIDTH_OES, &backingWidth);
-    glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_HEIGHT_OES, &backingHeight);
-
-    if (1/*USE_DEPTH_BUFFER*/) {
-        glGenRenderbuffersOES(1, &depth);
-        glBindRenderbufferOES(GL_RENDERBUFFER_OES, depth);
-        glRenderbufferStorageOES(GL_RENDERBUFFER_OES, GL_DEPTH_COMPONENT16_OES, backingWidth, backingHeight);
-        glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_DEPTH_ATTACHMENT_OES, GL_RENDERBUFFER_OES, depth);
+    if (context->config->depth_size) {
+        GLint backingWidth, backingHeight;
+        glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_WIDTH_OES, &backingWidth);
+        glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_HEIGHT_OES, &backingHeight);
+        depth = _createDepthBuffer(backingWidth, backingHeight, context->config->depth_size);
     }
 
     if (glCheckFramebufferStatusOES(GL_FRAMEBUFFER_OES) != GL_FRAMEBUFFER_COMPLETE_OES) {
