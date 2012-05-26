@@ -85,6 +85,7 @@ typedef struct internalAEGLSurface_t {
     GLuint       framebuffer;
     GLuint       colorRenderbuffer;
     GLuint       depthRenderbuffer;
+    BOOL         retained_backing;
 } AEGLSurface;
 
 struct internalAEGLContext_t {
@@ -476,6 +477,7 @@ EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
     surface->framebuffer = 0;
     surface->colorRenderbuffer = 0;
     surface->depthRenderbuffer = 0;
+    surface->retained_backing = cfg.retained_backing;
 
     return surface;
 }
@@ -662,28 +664,22 @@ EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface sfc,
 
 EGLBoolean eglBindAPI(EGLenum api)
 {
-    return false;
+    return EGL_FALSE;
 }
 
 EGLenum eglQueryAPI()
 {
-#if TARGET_IPHONE_OS || TARGET_IPHONE_SIMULATOR
-    return EGL_OPENGL_ES_API;
-#elif TARGET_MAC_OS_X
     return EGL_NONE;
-#else
-    return EGL_NONE;
-#endif
 }
 
 EGLBoolean eglWaitClient(void)
 {
-    return false;
+    return EGL_FALSE;
 }
 
 EGLBoolean eglReleaseThread(void)
 {
-    return false;
+    return EGL_FALSE;
 }
 
 EGLSurface eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer,
@@ -692,16 +688,74 @@ EGLSurface eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGL
     CHECK_DISPLAY(dpy);
 
     // FIXME: not implemented
-    return false;
+
+    return EGL_FALSE;
 }
 
-EGLBoolean eglSurfaceAttrib(EGLDisplay dpy, EGLSurface surface,
-                                        EGLint attribute, EGLint value)
+EGLBoolean eglSurfaceAttrib(EGLDisplay dpy, EGLSurface sfc,
+                            EGLint attribute, EGLint value)
 {
     CHECK_DISPLAY(dpy);
 
-    // FIXME: not implemented
-    return false;
+    if (!sfc) {
+        s_error = EGL_BAD_SURFACE;
+        return EGL_FALSE;
+    }
+
+    switch (attribute) {
+    case EGL_MIPMAP_LEVEL:
+        // For mipmap textures, the EGL_MIPMAP_LEVEL attribute indicates
+        // which level of the mipmap should be rendered. If the value of
+        // this attribute is outside the range of supported mipmap levels,
+        // the closest valid mipmap level is selected for rendering. The
+        // default value is 0.
+
+        /* not implemented */
+        s_error = EGL_BAD_ATTRIBUTE;
+        return EGL_FALSE;
+        break;
+
+    case EGL_MULTISAMPLE_RESOLVE:
+        // Specifies the filter to use when resolving the multisample
+        // buffer (this may occur when swapping or copying the surface, or
+        // when changing the client API context bound to the surface). A
+        // value of EGL_MULTISAMPLE_RESOLVE_DEFAULT chooses the default
+        // implementation-defined filtering method, while
+        // EGL_MULTISAMPLE_RESOLVE_BOX chooses a one-pixel wide box filter
+        // placing equal weighting on all multisample values.
+        //
+        // The initial value of EGL_MULTISAMPLE_RESOLVE is
+        // EGL_MULTISAMPLE_RESOLVE_DEFAULT.
+
+        /* not implemented */
+        s_error = EGL_BAD_ATTRIBUTE;
+        return EGL_FALSE;
+        break;
+
+    case EGL_SWAP_BEHAVIOR:
+        // Specifies the effect on the color buffer of posting a surface
+        // with eglSwapBuffers. A value of EGL_BUFFER_PRESERVED indicates
+        // that color buffer contents are unaffected, while
+        // EGL_BUFFER_DESTROYED indicates that color buffer contents may be
+        // destroyed or changed by the operation.
+        //
+        // The initial value of EGL_SWAP_BEHAVIOR is chosen by the
+        // implementation.
+        if (value == EGL_BUFFER_PRESERVED) {
+            surface->retained_backing = YES;
+        } else if (value == EGL_BUFFER_DESTROYED) {
+            surface->retained_backing = NO;
+        } else {
+            // do not change the value
+        }
+        break;
+
+    default:
+        s_error = EGL_BAD_ATTRIBUTE;
+        return EGL_FALSE;
+    }
+
+    return EGL_TRUE;
 }
 
 EGLBoolean eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
@@ -709,7 +763,8 @@ EGLBoolean eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
     CHECK_DISPLAY(dpy);
 
     // FIXME: not implemented
-    return false;
+
+    return EGL_FALSE;
 }
 
 EGLBoolean eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
@@ -717,18 +772,22 @@ EGLBoolean eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer)
     CHECK_DISPLAY(dpy);
 
     // FIXME: not implemented
-    return false;
-}
 
+    return EGL_FALSE;
+}
 
 EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval)
 {
     CHECK_DISPLAY(dpy);
 
-    // TODO: implementation
-    return false;
-}
+    // FIXME: not implemented
 
+    // NOTE:
+    // This function doesn't make much sense because the clients are expected
+    // to handle the updates themselves.
+
+    return EGL_FALSE;
+}
 
 EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config,
                                         EGLContext share_context,
