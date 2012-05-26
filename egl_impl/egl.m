@@ -46,6 +46,13 @@ typedef struct internalAEGLConfig_t {
     EGLint buffer_size;
 } AEGLConfig;
 
+typedef struct internalAEGLPlatformConfig_t {
+    EAGLRenderingAPI api_version;
+    NSString        *color_format;
+    BOOL             retained_backing;
+    GLuint           depth_component;
+} AEGLPlatformConfig;
+
 static AEGLConfig s_OpenGLES_1_config = {
     0,
     5, 6, 5, 0,
@@ -96,7 +103,8 @@ static EGLint s_error = EGL_SUCCESS;
 
 #pragma mark -
 
-_Bool _createFrameBuffer(AEGLSurface *surface, AEGLContext *context);
+_Bool _setupFrameBuffer(AEGLSurface *surface, AEGLContext *context);
+_Bool _configToPlatform(AEGLConfig *config, AEGLPlatformConfig *out_config);
 
 #pragma mark
 
@@ -416,14 +424,17 @@ EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config,
 {
     CHECK_DISPLAY(dpy);
 
+    AEGLPlatformConfig cfg;
+    _configToPlatform(config, &cfg);
+
     // TODO: handle the attrib_list
 
     UIView *glView = (UIView *)win;
     CAEAGLLayer *layer = (CAEAGLLayer *)glView.layer;
     layer.drawableProperties =
       [NSDictionary dictionaryWithObjectsAndKeys:
-       [NSNumber numberWithBool:NO], kEAGLDrawablePropertyRetainedBacking,
-       kEAGLColorFormatRGBA8,        kEAGLDrawablePropertyColorFormat,
+       [NSNumber numberWithBool:cfg.retained_backing], kEAGLDrawablePropertyRetainedBacking,
+       cfg.color_format,                               kEAGLDrawablePropertyColorFormat,
        nil];
 
     AEGLSurface *surface = malloc(sizeof(AEGLSurface));
@@ -651,14 +662,17 @@ EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config,
 {
     CHECK_DISPLAY(dpy);
 
-    EAGLRenderingAPI api_version = kEAGLRenderingAPIOpenGLES1;
+    AEGLPlatformConfig cfg;
+    _configToPlatform(config, &cfg);
+
+    EAGLRenderingAPI api_version = cfg.api_version;
     if (attrib_list) {
         for (unsigned i = 0; attrib_list[i] != EGL_NONE; i += 2) {
             if (attrib_list[i] == EGL_CONTEXT_CLIENT_VERSION) {
                 if (attrib_list[i+1] == 1) {
                     api_version = kEAGLRenderingAPIOpenGLES1;
                 } else if (attrib_list[i+1] == 2) {
-                    api_version = kEAGLRenderingAPIOpenGLES1;
+                    api_version = kEAGLRenderingAPIOpenGLES2;
                 }
             }
         }
@@ -707,7 +721,7 @@ EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
     AEGLSurface *surface = (AEGLSurface *)draw;
     surface->context = context;
 
-    if (_createFrameBuffer(surface, surface->context)) {
+    if (_setupFrameBuffer(surface, surface->context)) {
         return EGL_TRUE;
     }
 
@@ -856,21 +870,24 @@ GLuint _createDepthBuffer(GLint width, GLint height, GLuint bits)
     return depth;
 }
 
-_Bool _createFrameBuffer(AEGLSurface *surface, AEGLContext *context)
+_Bool _setupFrameBuffer(AEGLSurface *surface, AEGLContext *context)
 {
     GLuint framebuffer, color, depth = 0;
 
     [EAGLContext setCurrentContext:context->context];
 
+    // Create the framebuffer
     glGenFramebuffersOES(1, &framebuffer);
-    glGenRenderbuffersOES(1, &color);
-
     glBindFramebufferOES(GL_FRAMEBUFFER_OES, framebuffer);
+
+    // Create the color buffer
+    glGenRenderbuffersOES(1, &color);
     glBindRenderbufferOES(GL_RENDERBUFFER_OES, color);
     [context->context renderbufferStorage:GL_RENDERBUFFER_OES fromDrawable:(CAEAGLLayer*)surface->glView.layer];
     glFramebufferRenderbufferOES(GL_FRAMEBUFFER_OES, GL_COLOR_ATTACHMENT0_OES, GL_RENDERBUFFER_OES, color);
 
     if (context->config->depth_size) {
+        // Create the depth buffer
         GLint backingWidth, backingHeight;
         glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_WIDTH_OES, &backingWidth);
         glGetRenderbufferParameterivOES(GL_RENDERBUFFER_OES, GL_RENDERBUFFER_HEIGHT_OES, &backingHeight);
@@ -887,6 +904,38 @@ _Bool _createFrameBuffer(AEGLSurface *surface, AEGLContext *context)
 
     // Make color buffer the current bound renderbuffer
     glBindRenderbufferOES(GL_RENDERBUFFER_OES, color);
+
+    return true;
+}
+
+_Bool _configToPlatform(AEGLConfig *config, AEGLPlatformConfig *out_config)
+{
+    if (config->render_type_bitmask & EGL_OPENGL_ES2_BIT) {
+        out_config->api_version = kEAGLRenderingAPIOpenGLES2;
+    } else if (config->render_type_bitmask & EGL_OPENGL_ES_BIT) {
+        out_config->api_version = kEAGLRenderingAPIOpenGLES1;
+    } else {
+        // Return the minimum available version
+        out_config->api_version = kEAGLRenderingAPIOpenGLES1;
+    }
+
+    if (config->red_size >= 8 || config->green_size >= 8 || config->blue_size >= 8 || config->alpha_size > 0) {
+        out_config->color_format = kEAGLColorFormatRGBA8;
+    } else {
+        out_config->color_format = kEAGLColorFormatRGB565;
+    }
+
+    if (config->depth_size == 0) {
+        out_config->depth_component = 0;
+    } else if (config->depth_size == 16) {
+        out_config->depth_component = GL_DEPTH_COMPONENT16_OES;
+    } else if (config->depth_size == 24) {
+        out_config->depth_component = GL_DEPTH_COMPONENT24_OES;
+    } else {
+        out_config->depth_component = GL_DEPTH_COMPONENT16_OES;
+    }
+
+    out_config->retained_backing = NO;
 
     return true;
 }
