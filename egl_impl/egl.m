@@ -702,6 +702,8 @@ EGLBoolean eglSurfaceAttrib(EGLDisplay dpy, EGLSurface sfc,
         return EGL_FALSE;
     }
 
+    AEGLSurface *surface = (AEGLSurface *)sfc;
+
     switch (attribute) {
     case EGL_MIPMAP_LEVEL:
         // For mipmap textures, the EGL_MIPMAP_LEVEL attribute indicates
