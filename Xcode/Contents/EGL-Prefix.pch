@@ -1,0 +1,14 @@
+//
+// Prefix header for all source files of the 'EGL' target in the 'EGL' project
+//
+
+#ifdef __OBJC__
+  #import <Foundation/Foundation.h>
+  #if TARGET_OS_MAC
+    #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
+      #import <UIKit/UIKit.h>
+    #else
+      #import <Cocoa/Cocoa.h>
+    #endif
+  #endif
+#endif
